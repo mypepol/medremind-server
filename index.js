@@ -89,11 +89,13 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
   "name": "İlaç/vitamin adı",
   "amount": 1,
   "times": ["08:00"],
+  "duration": 0,
   "category": "ilac|vitamin|mineral|takviye",
   "notes": "Varsa ek bilgi"
 }
 
 amount: Tek seferde kaç adet/tablet alınacağı (sayı olarak, örn: 1, 2)
+duration: Kaç gün kullanılacağı (sayı olarak, kutuda yazıyorsa oku, yoksa 0 yaz)
 Kategori seçenekleri:
 - "ilac": Reçeteli veya reçetesiz ilaçlar
 - "vitamin": Vitaminler (A, B, C, D, E, K vb.)
@@ -161,6 +163,8 @@ Fotoğraftan okunamayan bilgileri makul varsayımlarla doldur.`,
     if (!['ilac', 'vitamin', 'mineral', 'takviye'].includes(result.category)) {
       result.category = 'ilac';
     }
+    result.duration = parseInt(result.duration) || 0;
+    if (result.duration <= 0) delete result.duration;
     if (!Array.isArray(result.times) || result.times.length === 0) {
       result.times = ['08:00'];
     }
