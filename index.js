@@ -36,7 +36,13 @@ const anthropic = new AnthropicClient({
 });
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok' });
+  const key = process.env.ANTHROPIC_API_KEY || '';
+  res.json({
+    status: 'ok',
+    hasApiKey: key.length > 0,
+    keyPrefix: key.substring(0, 10) + '...',
+    keyLength: key.length
+  });
 });
 
 app.post('/analyze', upload.single('photo'), async (req, res) => {
