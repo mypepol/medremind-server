@@ -68,7 +68,7 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
     const mediaType = imageBuffer.length !== fs.readFileSync(req.file.path).length ? 'image/jpeg' : (req.file.mimetype || 'image/jpeg');
 
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-3-haiku-20240307',
       max_tokens: 512,
       messages: [
         {
