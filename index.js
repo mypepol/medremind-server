@@ -30,8 +30,9 @@ const upload = multer({
   },
 });
 
-const anthropic = new Anthropic.default({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const AnthropicClient = Anthropic.default || Anthropic;
+const anthropic = new AnthropicClient({
+  apiKey: (process.env.ANTHROPIC_API_KEY || '').trim(),
 });
 
 app.get('/health', (_req, res) => {
