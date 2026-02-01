@@ -69,7 +69,7 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
 
     const response = await anthropic.messages.create({
       model: 'claude-3-haiku-20240307',
-      max_tokens: 512,
+      max_tokens: 800,
       messages: [
         {
           role: 'user',
@@ -84,26 +84,52 @@ app.post('/analyze', upload.single('photo'), async (req, res) => {
             },
             {
               type: 'text',
-              text: `Bu ilaç/vitamin/takviye fotoğrafını analiz et. Aşağıdaki JSON formatında yanıt ver, başka hiçbir şey yazma:
+              text: `Sen bir ilaç/vitamin/takviye tanıma uzmanısın. Bu fotoğrafı çok dikkatli analiz et.
+
+KRITIK KURALLAR:
+1. SADECE gerçek ilaç, vitamin, mineral veya takviye ürünü fotoğraflarını kabul et.
+2. Fotoğrafta ilaç/vitamin/mineral/takviye YOKSA (yiyecek, içecek, nesne, manzara, hayvan, insan, rastgele obje vs.), kesinlikle şu JSON'u döndür:
+{"found": false, "reason": "Fotoğrafta ilaç/vitamin/takviye ürünü tespit edilemedi"}
+3. Fotoğraf bulanık veya okunamaz durumdaysa:
+{"found": false, "reason": "Fotoğraf bulanık veya okunamaz durumda, lütfen daha net bir fotoğraf çekin"}
+
+EĞER gerçek bir ilaç/vitamin/mineral/takviye ürünü tespit ettiysen:
+- Kutu, şişe, blister ambalaj veya etiketteki YAZILARI dikkatlice oku
+- Marka adını ve etken madde adını doğru şekilde oku, tahmin YAPMA
+- Kutuda/ambalajda yazan dozaj bilgisini oku
+- Prospektüs veya kutu üzerinde yazıyorsa günlük kullanım miktarını oku
+
+Bu durumda aşağıdaki JSON formatında yanıt ver:
 {
-  "name": "İlaç/vitamin adı",
+  "found": true,
+  "confidence": 0.95,
+  "name": "Kutuda/şişede yazan TAM İLAÇ ADI",
   "amount": 1,
   "times": ["08:00"],
   "duration": 0,
-  "category": "ilac|vitamin|mineral|takviye",
-  "notes": "Varsa ek bilgi"
+  "category": "ilac",
+  "notes": "Kutuda yazan önemli bilgiler (dozaj, uyarılar vb.)"
 }
 
-amount: Tek seferde kaç adet/tablet alınacağı (sayı olarak, örn: 1, 2)
-duration: Kaç gün kullanılacağı (sayı olarak, kutuda yazıyorsa oku, yoksa 0 yaz)
-Kategori seçenekleri:
-- "ilac": Reçeteli veya reçetesiz ilaçlar
-- "vitamin": Vitaminler (A, B, C, D, E, K vb.)
-- "mineral": Mineraller (Demir, Çinko, Magnezyum vb.)
-- "takviye": Diğer takviyeler (Omega-3, Probiyotik vb.)
+ALAN AÇIKLAMALARI:
+- found: true ise ilaç bulundu, false ise bulunamadı
+- confidence: 0.0-1.0 arası, ilacı ne kadar net tanıdığın (0.7 altıysa found: false yap)
+- name: Kutuda/etiket üzerinde YAZAN ilaç adı. Okunamıyorsa TAHMIN ETME, found: false döndür
+- amount: Tek seferde kaç tablet/kapsül alınacağı (ambalajda yazıyorsa onu oku, yoksa 1)
+- times: Günlük alım saatleri dizisi. Günde 1 kez: ["08:00"], 2 kez: ["08:00","20:00"], 3 kez: ["08:00","14:00","20:00"]
+- duration: Kutu üzerinde kullanım süresi yazıyorsa gün olarak yaz, yoksa 0
+- category: Aşağıdakilerden BİRİ:
+  "ilac" = Reçeteli/reçetesiz ilaçlar (ağrı kesici, antibiyotik, tansiyon ilacı vb.)
+  "vitamin" = Vitaminler (A, B1, B6, B12, C, D, E, K, multivitamin)
+  "mineral" = Mineraller (Demir, Çinko, Magnezyum, Kalsiyum, Selenyum)
+  "takviye" = Diğer takviyeler (Omega-3, Probiyotik, Koenzim Q10, Balık yağı)
+- notes: Kutu üzerinde yazan önemli uyarılar veya kullanım talimatları
 
-Eğer günde birden fazla alınması gerekiyorsa times dizisine birden fazla saat ekle.
-Fotoğraftan okunamayan bilgileri makul varsayımlarla doldur.`,
+ÖNEMLİ:
+- ASLA uydurma/tahmin ilaç adı verme
+- İlaç adını kutu/etiket üzerinden oku, göremiyorsan found: false döndür
+- confidence 0.7'nin altındaysa found: false döndür
+- Yanıtın SADECE JSON olsun, başka hiçbir şey yazma`,
             },
           ],
         },
@@ -157,8 +183,40 @@ Fotoğraftan okunamayan bilgileri makul varsayımlarla doldur.`,
       };
     }
 
+    // İlaç bulunamadı kontrolü
+    if (result.found === false) {
+      console.log('İlaç tespit edilemedi:', result.reason);
+      return res.status(200).json({
+        found: false,
+        reason: result.reason || 'Fotoğrafta ilaç/vitamin/takviye ürünü tespit edilemedi'
+      });
+    }
+
+    // Güven skoru kontrolü
+    const confidence = parseFloat(result.confidence) || 0;
+    if (confidence < 0.7) {
+      console.log('Düşük güven skoru:', confidence);
+      return res.status(200).json({
+        found: false,
+        reason: 'Fotoğraftaki ürün net olarak tanımlanamadı. Lütfen daha yakından ve net bir fotoğraf çekin.'
+      });
+    }
+
+    // İlaç adı kontrolü - boş veya şüpheli mi?
+    const nameStr = String(result.name || '').trim();
+    const suspiciousNames = ['bilinmeyen', 'unknown', 'ilaç', 'vitamin', 'medicine', 'tablet', 'kapsül', 'capsule', 'pill'];
+    if (!nameStr || nameStr.length < 2 || suspiciousNames.includes(nameStr.toLowerCase())) {
+      console.log('Şüpheli/boş ilaç adı:', nameStr);
+      return res.status(200).json({
+        found: false,
+        reason: 'İlaç adı okunamadı. Lütfen kutunun/etiketin adının göründüğü tarafını fotoğraflayın.'
+      });
+    }
+
     // Validate and sanitize result
-    result.name = String(result.name || 'Bilinmeyen İlaç');
+    result.name = nameStr;
+    result.found = true;
+    result.confidence = confidence;
     result.amount = Math.max(1, Math.min(10, parseInt(result.amount) || 1));
     if (!['ilac', 'vitamin', 'mineral', 'takviye'].includes(result.category)) {
       result.category = 'ilac';
